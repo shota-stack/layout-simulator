@@ -1,0 +1,829 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>図面レイアウトシミュレーター</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<style>
+  :root{
+    --bg:#f4f5f7; --panel:#ffffff; --line:#e2e5ea; --ink:#2b2f38; --sub:#6b7280;
+    --accent:#0066cc; --accent2:#0052a3; --danger:#e63946; --ok:#2a9d8f;
+    --radius:8px;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  html,body{height:100%;}
+  body{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",sans-serif;
+       display:flex;flex-direction:column;height:100vh;background:var(--bg);color:var(--ink);overflow:hidden;}
+
+  /* Header */
+  header{height:52px;flex:0 0 auto;background:#fff;border-bottom:1px solid var(--line);
+         display:flex;align-items:center;gap:14px;padding:0 16px;box-shadow:0 1px 3px rgba(0,0,0,.04);z-index:20;}
+  header .logo{font-weight:700;font-size:15px;letter-spacing:.02em;}
+  header .logo small{color:var(--sub);font-weight:400;margin-left:6px;font-size:12px;}
+  header .spacer{flex:1;}
+  header .hbtn{font-size:12.5px;}
+
+  .app{flex:1;display:flex;min-height:0;}
+
+  /* Sidebar */
+  .sidebar{width:290px;flex:0 0 auto;background:var(--panel);border-right:1px solid var(--line);
+           display:flex;flex-direction:column;overflow-y:auto;}
+  .section{padding:14px 16px;border-bottom:1px solid var(--line);}
+  .section h3{font-size:12px;color:var(--sub);letter-spacing:.06em;text-transform:uppercase;margin-bottom:10px;font-weight:700;}
+  .row{display:flex;gap:8px;flex-wrap:wrap;}
+
+  .btn{padding:8px 12px;background:var(--accent);color:#fff;border:none;border-radius:6px;cursor:pointer;
+       font-weight:600;font-size:12.5px;transition:background .15s;white-space:nowrap;}
+  .btn:hover{background:var(--accent2);}
+  .btn:disabled{opacity:.45;cursor:not-allowed;}
+  .btn.outline{background:#fff;color:var(--ink);border:1px solid #ccd1d9;}
+  .btn.outline:hover{background:#eef1f5;}
+  .btn.danger{background:var(--danger);}
+  .btn.ghost{background:#eef1f5;color:var(--ink);}
+  .btn.ghost:hover{background:#e2e6ec;}
+  .btn.sm{padding:6px 9px;font-size:11.5px;}
+  .btn.full{width:100%;}
+  .btn.on{background:var(--ok);color:#fff;}
+
+  /* Sheets */
+  .sheet-list{display:flex;flex-direction:column;gap:6px;margin-bottom:10px;}
+  .sheet-item{display:flex;align-items:center;gap:6px;padding:7px 9px;border:1px solid var(--line);
+              border-radius:6px;cursor:pointer;font-size:12.5px;background:#fff;}
+  .sheet-item.active{border-color:var(--accent);background:#eef5ff;font-weight:600;}
+  .sheet-item .nm{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+  .sheet-item .x{color:var(--sub);font-size:14px;padding:0 3px;border-radius:4px;}
+  .sheet-item .x:hover{color:var(--danger);background:#ffe9eb;}
+
+  /* Scale badge */
+  .scale-box{background:#f7f9fc;border:1px solid var(--line);border-radius:6px;padding:9px 11px;font-size:12px;margin-bottom:8px;}
+  .scale-box b{font-size:13px;color:var(--accent);}
+  .scale-box .warn{color:var(--danger);}
+
+  /* Library */
+  .cat{margin-bottom:6px;}
+  .cat > .cat-h{display:flex;align-items:center;justify-content:space-between;cursor:pointer;
+       padding:7px 4px;font-size:12.5px;font-weight:700;color:var(--ink);}
+  .cat-h .tw{color:var(--sub);font-size:11px;transition:transform .15s;}
+  .cat.collapsed .parts{display:none;}
+  .cat.collapsed .tw{transform:rotate(-90deg);}
+  .parts{display:grid;grid-template-columns:1fr 1fr;gap:6px;padding:2px 0 6px;}
+  .part{border:1px solid var(--line);border-radius:6px;padding:7px 6px;cursor:grab;background:#fff;
+        font-size:11px;text-align:center;line-height:1.3;transition:.12s;user-select:none;}
+  .part:hover{border-color:var(--accent);background:#f2f8ff;transform:translateY(-1px);}
+  .part .sw{display:inline-block;width:100%;height:20px;border-radius:3px;margin-bottom:4px;border:1px solid rgba(0,0,0,.15);}
+  .part .dim{color:var(--sub);font-size:10px;}
+
+  /* Toggle line */
+  .toggle{display:flex;align-items:center;gap:8px;font-size:12.5px;margin-bottom:8px;}
+  .toggle input{width:16px;height:16px;}
+  .inp{width:62px;padding:5px 7px;border:1px solid #ccd1d9;border-radius:5px;font-size:12.5px;}
+  select.inp{width:auto;}
+
+  /* Workspace */
+  .workspace{flex:1;position:relative;min-width:0;background:#dfe3e8;
+             background-image:radial-gradient(#cfd4db 1px,transparent 1px);background-size:22px 22px;overflow:hidden;}
+  #c-wrap{position:absolute;inset:0;}
+  canvas{display:block;}
+
+  .canvas-hint{position:absolute;top:12px;left:50%;transform:translateX(-50%);
+    background:rgba(43,47,56,.88);color:#fff;padding:7px 14px;border-radius:20px;font-size:12.5px;
+    z-index:6;pointer-events:none;opacity:0;transition:opacity .2s;}
+  .canvas-hint.show{opacity:1;}
+
+  .zoombar{position:absolute;right:14px;bottom:14px;display:flex;gap:6px;align-items:center;
+    background:#fff;border:1px solid var(--line);border-radius:8px;padding:5px 7px;box-shadow:0 2px 8px rgba(0,0,0,.1);z-index:6;}
+  .zoombar button{width:30px;height:30px;border:none;background:#f1f3f6;border-radius:6px;cursor:pointer;font-size:16px;color:var(--ink);}
+  .zoombar button:hover{background:#e4e8ee;}
+  .zoombar .z{font-size:12px;min-width:46px;text-align:center;color:var(--sub);}
+
+  /* Empty state */
+  .empty{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;
+    gap:14px;color:var(--sub);text-align:center;padding:24px;z-index:5;}
+  .empty h2{font-size:18px;color:var(--ink);font-weight:700;}
+  .empty p{font-size:13px;max-width:360px;line-height:1.7;}
+
+  /* Properties bar */
+  .props{position:absolute;left:14px;bottom:14px;background:#fff;border:1px solid var(--line);border-radius:10px;
+    box-shadow:0 3px 14px rgba(0,0,0,.12);padding:11px 14px;z-index:7;display:none;min-width:280px;}
+  .props.show{display:block;}
+  .props h4{font-size:12.5px;margin-bottom:9px;display:flex;align-items:center;gap:8px;}
+  .props h4 .tag{background:#eef5ff;color:var(--accent);border-radius:4px;padding:1px 7px;font-size:11px;}
+  .pf{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
+  .pf label{font-size:11px;color:var(--sub);display:flex;flex-direction:column;gap:3px;}
+  .pf label input,.pf label select{margin-top:1px;}
+  .props .prow2{display:flex;gap:6px;margin-top:10px;}
+
+  /* Calibration overlay banner */
+  .cal-banner{position:absolute;top:12px;left:50%;transform:translateX(-50%);
+    background:var(--ok);color:#fff;padding:8px 16px;border-radius:8px;font-size:12.5px;z-index:8;display:none;
+    box-shadow:0 3px 12px rgba(0,0,0,.18);}
+  .cal-banner.show{display:block;}
+
+  input[type=file]{display:none;}
+  hr{border:none;border-top:1px solid var(--line);margin:10px 0;}
+  .muted{color:var(--sub);font-size:11.5px;line-height:1.6;}
+  .colorswatch{width:26px;height:26px;border-radius:5px;border:1px solid #ccd1d9;padding:0;cursor:pointer;}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">図面レイアウトシミュレーター<small>実寸ドラッグ配置</small></div>
+  <div class="spacer"></div>
+  <button class="btn ghost hbtn" onclick="saveProject()">💾 保存(JSON)</button>
+  <label class="btn ghost hbtn" style="cursor:pointer;">📂 読込<input type="file" id="loadProj" accept="application/json"></label>
+  <button class="btn outline hbtn" onclick="exportPNG()">🖼 PNG書出し</button>
+</header>
+
+<div class="app">
+  <!-- Sidebar -->
+  <aside class="sidebar">
+    <!-- Sheets -->
+    <div class="section">
+      <h3>図面シート</h3>
+      <div class="sheet-list" id="sheetList"></div>
+      <div class="row">
+        <label class="btn sm outline" style="cursor:pointer;">＋PDF<input type="file" id="addPdf" accept="application/pdf"></label>
+        <label class="btn sm outline" style="cursor:pointer;">＋画像<input type="file" id="addImg" accept="image/*"></label>
+        
+      </div>
+    </div>
+
+    <!-- Scale -->
+    <div class="section">
+      <h3>縮尺（実寸設定）</h3>
+      <div class="scale-box" id="scaleBox">図面が未選択です</div>
+      <button class="btn sm full" id="calBtn" onclick="startCalibration()">📏 2点クリックで縮尺を設定</button>
+      <div class="muted" style="margin-top:7px;">図面上で長さの分かる2点（寸法線の端など）をクリックし、実寸(mm)を入力します。</div>
+    </div>
+
+    <!-- Grid -->
+    <div class="section">
+      <h3>グリッド / 吸着</h3>
+      <div class="toggle"><input type="checkbox" id="gridOn" checked><label for="gridOn">グリッドを表示</label></div>
+      <div class="toggle"><input type="checkbox" id="snapOn" checked><label for="snapOn">グリッドに吸着</label></div>
+      <div class="toggle" style="margin-bottom:0;">
+        <label for="gridMM">間隔</label>
+        <select id="gridMM" class="inp">
+          <option value="50">50mm</option>
+          <option value="100" selected>100mm</option>
+          <option value="250">250mm</option>
+          <option value="500">500mm</option>
+          <option value="1000">1000mm</option>
+        </select>
+      </div>
+    </div>
+
+    <!-- Library -->
+    <div class="section">
+      <h3>什器・設備パーツ</h3>
+      <div class="muted" style="margin-bottom:8px;">クリックで中央に追加、またはキャンバスへドラッグ＆ドロップ。</div>
+      <div id="library"></div>
+    </div>
+
+    <!-- Actions -->
+    <div class="section">
+      <h3>操作</h3>
+      <div class="row">
+        <button class="btn sm ghost" onclick="duplicateSel()">複製</button>
+        <button class="btn sm ghost" onclick="rotate90()">90°回転</button>
+        <button class="btn sm ghost" onclick="bringFwd()">前面へ</button>
+        <button class="btn sm ghost" onclick="sendBwd()">背面へ</button>
+        <button class="btn sm danger" onclick="deleteSel()">削除</button>
+      </div>
+      <div class="muted" style="margin-top:8px;">ショートカット: Delete=削除 / Ctrl+D=複製 / Space+ドラッグ=画面移動 / ホイール=拡大縮小</div>
+    </div>
+  </aside>
+
+  <!-- Workspace -->
+  <div class="workspace" id="workspace">
+    <div id="c-wrap"><canvas id="c"></canvas></div>
+
+    <div class="empty" id="emptyState">
+      <h2>図面を読み込んでください</h2>
+      <p>左上の「＋PDF」または「＋画像」から図面を読み込んでください。読み込んだら「縮尺を設定」で実寸を合わせ、什器をドラッグして配置します。図面データはブラウザ内だけで処理され、外部に送信されません。</p>
+    </div>
+
+    <div class="canvas-hint" id="hint"></div>
+    <div class="cal-banner" id="calBanner">📏 縮尺設定モード：1点目をクリック</div>
+
+    <!-- Properties -->
+    <div class="props" id="props">
+      <h4><span class="tag" id="pTag">什器</span><span id="pName">—</span></h4>
+      <div class="pf">
+        <label>幅 W(mm)<input type="number" class="inp" id="pW" min="1" step="10"></label>
+        <label id="pDwrap">奥行 D(mm)<input type="number" class="inp" id="pD" min="1" step="10"></label>
+        <label>角度<input type="number" class="inp" id="pA" step="15"></label>
+        <label>色<input type="color" class="colorswatch" id="pColor"></label>
+      </div>
+      <div class="prow2">
+        <button class="btn sm ghost" onclick="rotate90()">90°</button>
+        <button class="btn sm ghost" onclick="duplicateSel()">複製</button>
+        <button class="btn sm danger" onclick="deleteSel()">削除</button>
+      </div>
+    </div>
+
+    <!-- Zoom -->
+    <div class="zoombar">
+      <button onclick="zoomStep(-1)" title="縮小">−</button>
+      <span class="z" id="zoomLbl">100%</span>
+      <button onclick="zoomStep(1)" title="拡大">＋</button>
+      <button onclick="fitView()" title="全体表示">⤢</button>
+    </div>
+  </div>
+</div>
+
+<script>
+/* ================= サンプル図面データ（100DPI, 実寸 6.35 mm/px = 1:25） ================= */
+const SAMPLES = {};
+const SAMPLE_MMPP = 6.35; // 25.4/100*25
+
+/* ================= 什器ライブラリ ================= */
+// w,d は実寸(mm)。shape: rect|circle。circleは w を直径として使用。
+const LIBRARY = [
+  { cat:"客席", color:"#cfe3d8", items:[
+    { key:"chair_round", name:"丸イス", shape:"circle", w:450, d:450, color:"#8fb6a3" },
+    { key:"chair_sq",    name:"角イス", shape:"rect",   w:450, d:450, color:"#8fb6a3" },
+    { key:"table2",      name:"2人テーブル", shape:"rect", w:600, d:700, color:"#e9c46a" },
+    { key:"table4",      name:"4人テーブル", shape:"rect", w:1200, d:700, color:"#e9c46a" },
+    { key:"counter",     name:"カウンター天板", shape:"rect", w:1800, d:400, color:"#d9a066" },
+    { key:"sofa",        name:"ソファ席", shape:"rect", w:1200, d:600, color:"#b7a4c9" },
+    { key:"stool",       name:"スツール", shape:"circle", w:380, d:380, color:"#8fb6a3" },
+  ]},
+  { cat:"厨房設備", color:"#cfe0e8", items:[
+    { key:"sink1", name:"シンク", shape:"rect", w:600, d:600, color:"#8fc0d0" },
+    { key:"sink2", name:"二槽シンク", shape:"rect", w:1200, d:600, color:"#8fc0d0" },
+    { key:"stove", name:"コンロ台", shape:"rect", w:600, d:600, color:"#d98a8a" },
+    { key:"fridge", name:"冷蔵庫", shape:"rect", w:700, d:700, color:"#9db4d6" },
+    { key:"freezer", name:"冷凍庫", shape:"rect", w:700, d:700, color:"#7f97c4" },
+    { key:"worktop", name:"作業台", shape:"rect", w:900, d:600, color:"#c9cdd4" },
+    { key:"underfridge", name:"台下冷蔵庫", shape:"rect", w:1200, d:600, color:"#9db4d6" },
+    { key:"dishwasher", name:"食洗機", shape:"rect", w:600, d:600, color:"#c9cdd4" },
+    { key:"prep", name:"下ごしらえ台", shape:"rect", w:750, d:600, color:"#c9cdd4" },
+  ]},
+  { cat:"水回り・その他", color:"#e6dfcf", items:[
+    { key:"toilet", name:"洋式トイレ", shape:"rect", w:400, d:700, color:"#cfd4db" },
+    { key:"washbasin", name:"手洗い器", shape:"rect", w:400, d:350, color:"#8fc0d0" },
+    { key:"shelf", name:"収納棚", shape:"rect", w:900, d:450, color:"#d8c9a3" },
+    { key:"register", name:"レジカウンター", shape:"rect", w:900, d:600, color:"#d9a066" },
+    { key:"showcase", name:"ショーケース", shape:"rect", w:1200, d:600, color:"#a9c3d6" },
+  ]},
+  { cat:"自由図形", color:"#e0e0e0", items:[
+    { key:"free_rect", name:"四角", shape:"rect", w:500, d:500, color:"#b8bec8" },
+    { key:"free_circle", name:"丸", shape:"circle", w:500, d:500, color:"#b8bec8" },
+    { key:"free_text", name:"テキスト", shape:"text", w:0, d:0, color:"#2b2f38" },
+  ]},
+];
+const ITEM_INDEX = {};
+LIBRARY.forEach(c=>c.items.forEach(it=>ITEM_INDEX[it.key]=it));
+
+/* ================= 状態 ================= */
+let canvas;
+const project = { sheets: [], active: -1 };
+let calMode = false, calP1 = null, calLine = null, calDots = [];
+let isPanning = false, spaceDown = false, lastPan = null;
+let suppressAutosave = false;
+
+function activeSheet(){ return project.active>=0 ? project.sheets[project.active] : null; }
+function mmpp(){ const s=activeSheet(); return s ? s.mmPerPixel : SAMPLE_MMPP; }
+
+/* ================= 初期化 ================= */
+window.addEventListener('load', ()=>{
+  fabric.Object.prototype.set({ transparentCorners:false, cornerColor:'#0066cc', cornerStyle:'circle',
+      borderColor:'#0066cc', cornerSize:9, padding:2, borderScaleFactor:1.4 });
+  if (window['pdfjsLib']) pdfjsLib.GlobalWorkerOptions.workerSrc =
+      'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
+
+  canvas = new fabric.Canvas('c', { selection:true, preserveObjectStacking:true, backgroundColor:'#ffffff' });
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+  buildLibrary();
+  bindEvents();
+  wireCanvas();
+  tryRestore();
+});
+
+function resizeCanvas(){
+  const w = document.getElementById('workspace');
+  canvas.setWidth(w.clientWidth); canvas.setHeight(w.clientHeight);
+  canvas.renderAll();
+}
+
+/* ================= ライブラリUI ================= */
+function buildLibrary(){
+  const wrap = document.getElementById('library'); wrap.innerHTML='';
+  LIBRARY.forEach((c,ci)=>{
+    const cat=document.createElement('div'); cat.className='cat'+(ci>0?' collapsed':'');
+    const h=document.createElement('div'); h.className='cat-h';
+    h.innerHTML=`<span>${c.cat}</span><span class="tw">▼</span>`;
+    h.onclick=()=>cat.classList.toggle('collapsed');
+    const parts=document.createElement('div'); parts.className='parts';
+    c.items.forEach(it=>{
+      const p=document.createElement('div'); p.className='part'; p.draggable=true;
+      const dim = it.shape==='text' ? 'ラベル' : (it.shape==='circle'?`φ${it.w}`:`${it.w}×${it.d}`);
+      const swStyle = it.shape==='circle'
+        ? `border-radius:50%;width:20px;height:20px;margin:0 auto 4px;background:${it.color};`
+        : `background:${it.color};`;
+      p.innerHTML=`<span class="sw" style="${swStyle}"></span>${it.name}<br><span class="dim">${dim}</span>`;
+      p.onclick=()=>addFixture(it.key);
+      p.addEventListener('dragstart',e=>{ e.dataTransfer.setData('text/fx', it.key); });
+      parts.appendChild(p);
+    });
+    cat.appendChild(h); cat.appendChild(parts); wrap.appendChild(cat);
+  });
+}
+
+/* ================= シート管理 ================= */
+function renderSheetList(){
+  const el=document.getElementById('sheetList'); el.innerHTML='';
+  project.sheets.forEach((s,i)=>{
+    const d=document.createElement('div'); d.className='sheet-item'+(i===project.active?' active':'');
+    d.innerHTML=`<span class="nm">${s.name}</span><span class="x" title="削除">✕</span>`;
+    d.querySelector('.nm').onclick=()=>switchSheet(i);
+    d.querySelector('.x').onclick=(e)=>{e.stopPropagation();removeSheet(i);};
+    el.appendChild(d);
+  });
+  document.getElementById('emptyState').style.display = project.sheets.length? 'none':'flex';
+}
+
+function addSheet(sheet, switchTo=true){
+  project.sheets.push(sheet); renderSheetList();
+  if(switchTo) switchSheet(project.sheets.length-1);
+  autosave();
+}
+
+function switchSheet(i){
+  if(project.active===i) return;
+  syncActiveObjects();
+  project.active=i;
+  const s=project.sheets[i];
+  canvas.clear(); canvas.backgroundColor='#ffffff';
+  fabric.Image.fromURL(s.image, img=>{
+    img.set({selectable:false,evented:false,originX:'left',originY:'top',left:0,top:0});
+    s._imgW=img.width; s._imgH=img.height;
+    canvas.setBackgroundImage(img, ()=>{
+      // load objects
+      if(s.objects && s.objects.length){
+        fabric.util.enlivenObjects(s.objects, objs=>{
+          objs.forEach(o=>canvas.add(o)); canvas.renderAll();
+        });
+      } else canvas.renderAll();
+      fitView();
+    });
+  });
+  renderSheetList(); updateScaleBox(); updateProps();
+}
+
+function removeSheet(i){
+  if(!confirm('このシートを削除しますか？（配置した什器も消えます）')) return;
+  if(i===project.active){ syncActiveObjects(); }
+  project.sheets.splice(i,1);
+  if(project.active>=project.sheets.length) project.active=project.sheets.length-1;
+  if(project.active<0){ canvas.clear(); canvas.backgroundColor='#fff'; canvas.setBackgroundImage(null,canvas.renderAll.bind(canvas)); }
+  else { const t=project.active; project.active=-1; switchSheet(t); }
+  renderSheetList(); updateScaleBox(); autosave();
+}
+
+function syncActiveObjects(){
+  const s=activeSheet(); if(!s) return;
+  s.objects = canvas.toJSON(['data']).objects;
+}
+
+/* ================= サンプル・アップロード ================= */
+function loadSamples(){
+  const keys=Object.keys(SAMPLES);
+  if(!keys.length){ alert('サンプルデータが見つかりません。'); return; }
+  keys.forEach(k=>{
+    addSheet({ name:SAMPLES[k].name, image:SAMPLES[k].data, mmPerPixel:SAMPLE_MMPP, calibrated:true, objects:[] }, false);
+  });
+  switchSheet(project.sheets.length-keys.length);
+  showHint('サンプル図面を読み込みました（縮尺1:25として設定済み）');
+}
+
+document.addEventListener('DOMContentLoaded',()=>{});
+
+function handleImageFile(file, name){
+  const r=new FileReader();
+  r.onload=f=>{ addSheet({ name:name||file.name, image:f.target.result, mmPerPixel:SAMPLE_MMPP, calibrated:false, objects:[] });
+    showHint('画像を読み込みました。「縮尺を設定」で実寸を合わせてください'); };
+  r.readAsDataURL(file);
+}
+
+async function handlePdfFile(file){
+  const buf=await file.arrayBuffer();
+  const pdf=await pdfjsLib.getDocument({data:buf}).promise;
+  const page=await pdf.getPage(1);
+  const vp=page.getViewport({scale:2.0}); // ~144dpi相当
+  const cv=document.createElement('canvas'); cv.width=vp.width; cv.height=vp.height;
+  await page.render({canvasContext:cv.getContext('2d'), viewport:vp}).promise;
+  addSheet({ name:file.name.replace(/\.pdf$/i,''), image:cv.toDataURL('image/png'),
+             mmPerPixel:SAMPLE_MMPP, calibrated:false, objects:[] });
+  showHint('PDFを読み込みました。「縮尺を設定」で実寸を合わせてください');
+}
+
+/* ================= 什器の追加 ================= */
+function makeFixture(item, opts){
+  const scale=mmpp();
+  let obj;
+  const common={ originX:'center', originY:'center', data:{ key:item.key, name:item.name, shape:item.shape,
+    realW:item.w, realD:item.d, baseW:item.w/scale, baseH:item.d/scale } };
+  if(item.shape==='text'){
+    obj=new fabric.IText(opts.text||'テキスト',{ ...common, fontSize:Math.max(80/scale*6, 14),
+      fill:item.color, fontFamily:'inherit' });
+    obj.data.realW=0; obj.data.realD=0; obj.data.baseW=0; obj.data.baseH=0;
+    return obj;
+  }
+  if(item.shape==='circle'){
+    const rpx=(item.w/scale)/2;
+    const circ=new fabric.Circle({ radius:rpx, fill:item.color, stroke:'#5f6b7a', strokeWidth:1,
+      originX:'center', originY:'center' });
+    const label=new fabric.Text(item.name,{ fontSize:Math.min(rpx*0.5,14), fill:'#243', originX:'center',
+      originY:'center', fontFamily:'inherit' });
+    obj=new fabric.Group([circ,label],{ ...common, lockUniScaling:true });
+  } else {
+    const wpx=item.w/scale, hpx=item.d/scale;
+    const rect=new fabric.Rect({ width:wpx, height:hpx, fill:item.color, stroke:'#5f6b7a', strokeWidth:1,
+      rx:3, ry:3, originX:'center', originY:'center' });
+    const label=new fabric.Text(item.name,{ fontSize:Math.min(hpx*0.32, wpx*0.22, 14), fill:'#243',
+      originX:'center', originY:'center', fontFamily:'inherit' });
+    obj=new fabric.Group([rect,label],{ ...common });
+  }
+  return obj;
+}
+
+function addFixture(key, pos){
+  if(project.active<0){ showHint('先に図面シートを読み込んでください'); return; }
+  const item=ITEM_INDEX[key]; if(!item) return;
+  const obj=makeFixture(item,{});
+  const p = pos || canvas.getVpCenter ? (pos||viewCenterScene()) : viewCenterScene();
+  obj.set({ left:p.x, top:p.y });
+  canvas.add(obj); canvas.setActiveObject(obj); canvas.requestRenderAll();
+  autosave();
+}
+
+function viewCenterScene(){
+  const z=canvas.getZoom(), vpt=canvas.viewportTransform;
+  return { x:(canvas.width/2 - vpt[4])/z, y:(canvas.height/2 - vpt[5])/z };
+}
+
+/* ================= 寸法・プロパティ ================= */
+function objRealSize(o){
+  const scale=mmpp();
+  const d=o.data||{};
+  if(d.shape==='text') return {w:0,d:0,text:true};
+  // 基準ジオメトリ(線幅を含まない)×スケールで実寸を算出
+  if(d.baseW){
+    const w=Math.round(d.baseW*Math.abs(o.scaleX)*scale);
+    const h=Math.round(d.baseH*Math.abs(o.scaleY)*scale);
+    return {w, d:h, circle:d.shape==='circle'};
+  }
+  const w=Math.round(o.getScaledWidth()*scale);
+  const h=Math.round(o.getScaledHeight()*scale);
+  return {w, d:h, circle:d.shape==='circle'};
+}
+
+function updateProps(){
+  const o=canvas.getActiveObject();
+  const box=document.getElementById('props');
+  if(!o || o.type==='activeSelection'){ box.classList.remove('show'); return; }
+  box.classList.add('show');
+  const d=o.data||{};
+  document.getElementById('pName').textContent=d.name||'オブジェクト';
+  const sz=objRealSize(o);
+  const isText = d.shape==='text';
+  const isCircle = d.shape==='circle';
+  document.getElementById('pDwrap').style.display = (isText||isCircle)?'none':'flex';
+  document.getElementById('pW').parentElement.querySelector('input').previousSibling; // noop
+  const wl=document.getElementById('pW').parentElement;
+  wl.childNodes[0].nodeValue = isCircle? '直径 φ(mm)' : (isText?'文字サイズ(px)':'幅 W(mm)');
+  if(isText){ document.getElementById('pW').value=Math.round(o.fontSize); }
+  else { document.getElementById('pW').value=sz.w; document.getElementById('pD').value=sz.d; }
+  document.getElementById('pA').value=Math.round(o.angle);
+  const fillObj = getFillTarget(o);
+  document.getElementById('pColor').value = rgbToHex(fillObj);
+}
+
+function getFillTarget(o){
+  if(o._objects) return o._objects[0].fill;
+  return o.fill;
+}
+function setFill(o,color){
+  if(o._objects) o._objects[0].set('fill',color);
+  else o.set('fill',color);
+}
+function rgbToHex(c){
+  if(!c) return '#cccccc';
+  if(c[0]==='#') return c.length===4? '#'+c[1]+c[1]+c[2]+c[2]+c[3]+c[3] : c;
+  const m=c.match(/\d+/g); if(!m) return '#cccccc';
+  return '#'+m.slice(0,3).map(n=>(+n).toString(16).padStart(2,'0')).join('');
+}
+
+function applyProps(){
+  const o=canvas.getActiveObject(); if(!o) return;
+  const d=o.data||{}; const scale=mmpp();
+  if(d.shape==='text'){ o.set('fontSize', Math.max(1,+document.getElementById('pW').value||14)); }
+  else {
+    const wmm=+document.getElementById('pW').value||100;
+    const bw=d.baseW||o.width, bh=d.baseH||o.height;
+    if(d.shape==='circle'){
+      const s=(wmm/scale)/bw; o.scaleX=s; o.scaleY=s;
+      d.realW=wmm; d.realD=wmm;
+    } else {
+      const dmm=+document.getElementById('pD').value||100;
+      o.scaleX=(wmm/scale)/bw; o.scaleY=(dmm/scale)/bh;
+      d.realW=wmm; d.realD=dmm;
+    }
+  }
+  const a=+document.getElementById('pA').value||0; o.rotate(a);
+  setFill(o, document.getElementById('pColor').value);
+  o.setCoords(); canvas.requestRenderAll(); autosave();
+}
+
+/* ================= 縮尺キャリブレーション ================= */
+function startCalibration(){
+  if(project.active<0){ showHint('先に図面を読み込んでください'); return; }
+  calMode=true; calP1=null; clearCalMarks();
+  document.getElementById('calBtn').classList.add('on');
+  document.getElementById('calBanner').textContent='📏 縮尺設定モード：1点目をクリック（キャンセルはEsc）';
+  document.getElementById('calBanner').classList.add('show');
+  canvas.discardActiveObject(); canvas.selection=false; canvas.defaultCursor='crosshair'; canvas.requestRenderAll();
+}
+function endCalibration(){
+  calMode=false; calP1=null; clearCalMarks();
+  document.getElementById('calBtn').classList.remove('on');
+  document.getElementById('calBanner').classList.remove('show');
+  canvas.selection=true; canvas.defaultCursor='default'; canvas.requestRenderAll();
+}
+function clearCalMarks(){
+  if(calLine){ canvas.remove(calLine); calLine=null; }
+  calDots.forEach(d=>canvas.remove(d)); calDots=[];
+}
+function calClick(p){
+  if(!calP1){
+    calP1=p;
+    const dot=calDot(p); calDots.push(dot); canvas.add(dot);
+    document.getElementById('calBanner').textContent='📏 2点目をクリック';
+  } else {
+    const dot=calDot(p); calDots.push(dot); canvas.add(dot);
+    calLine=new fabric.Line([calP1.x,calP1.y,p.x,p.y],{stroke:'#2a9d8f',strokeWidth:2/canvas.getZoom(),
+      selectable:false,evented:false}); canvas.add(calLine); canvas.requestRenderAll();
+    const dist=Math.hypot(p.x-calP1.x, p.y-calP1.y);
+    setTimeout(()=>{
+      const ans=prompt('この2点間の実際の長さを mm で入力してください：', '1000');
+      if(ans!==null){
+        const mm=parseFloat(ans);
+        if(mm>0 && dist>0){ applyCalibration(mm/dist); }
+      }
+      endCalibration();
+    },30);
+  }
+}
+function calDot(p){ return new fabric.Circle({left:p.x,top:p.y,radius:4/canvas.getZoom(),fill:'#2a9d8f',
+  originX:'center',originY:'center',selectable:false,evented:false}); }
+
+function applyCalibration(newMmpp){
+  const s=activeSheet(); if(!s) return;
+  const old=s.mmPerPixel;
+  s.mmPerPixel=newMmpp; s.calibrated=true;
+  // 既存什器の実寸を保持（px再計算）
+  canvas.getObjects().forEach(o=>{
+    if(!o.data) return;
+    if(o.data.shape==='text') return;
+    const bw=o.data.baseW, bh=o.data.baseH;
+    if(!bw) return;
+    if(o.data.shape==='circle'){
+      const s=(o.data.realW/newMmpp)/bw; o.scaleX=s; o.scaleY=s;
+    } else if(o.data.realW){
+      o.scaleX=(o.data.realW/newMmpp)/bw; o.scaleY=(o.data.realD/newMmpp)/bh;
+    }
+    o.setCoords();
+  });
+  updateScaleBox(); canvas.requestRenderAll(); autosave();
+  showHint('縮尺を設定しました：1px = '+newMmpp.toFixed(3)+' mm');
+}
+
+function updateScaleBox(){
+  const s=activeSheet(); const box=document.getElementById('scaleBox');
+  if(!s){ box.innerHTML='図面が未選択です'; return; }
+  const mppv=s.mmPerPixel;
+  const gpx=(+document.getElementById('gridMM').value)/mppv;
+  box.innerHTML = s.calibrated
+    ? `1px = <b>${mppv.toFixed(3)} mm</b><br><span class="muted">グリッド1マス ≈ ${gpx.toFixed(1)}px</span>`
+    : `<span class="warn">未校正</span> 仮に 1px=${mppv.toFixed(2)}mm<br><span class="muted">「縮尺を設定」で実寸を合わせてください</span>`;
+}
+
+/* ================= グリッド描画 ================= */
+function drawGrid(){
+  if(!document.getElementById('gridOn').checked) return;
+  const s=activeSheet(); if(!s||!s._imgW) return;
+  const ctx=canvas.getContext(); const vpt=canvas.viewportTransform; const z=canvas.getZoom();
+  const step=(+document.getElementById('gridMM').value)/s.mmPerPixel;
+  if(step*z < 6) return; // 細かすぎる時は非表示
+  ctx.save();
+  ctx.transform(vpt[0],vpt[1],vpt[2],vpt[3],vpt[4],vpt[5]);
+  ctx.lineWidth=1/z; ctx.strokeStyle='rgba(0,90,180,0.16)';
+  ctx.beginPath();
+  for(let x=0;x<=s._imgW;x+=step){ ctx.moveTo(x,0); ctx.lineTo(x,s._imgH); }
+  for(let y=0;y<=s._imgH;y+=step){ ctx.moveTo(0,y); ctx.lineTo(s._imgW,y); }
+  ctx.stroke();
+  ctx.restore();
+}
+
+/* 選択オブジェクトの寸法バッジ */
+function drawDimBadge(){
+  const o=canvas.getActiveObject(); if(!o||!o.data) return;
+  if(o.data.shape==='text') return;
+  const sz=objRealSize(o);
+  const txt = sz.circle? `φ${sz.w}` : `${sz.w} × ${sz.d} mm`;
+  const ctx=canvas.getContext();
+  const br=o.getBoundingRect(true,true); // in scene coords
+  const z=canvas.getZoom(), vpt=canvas.viewportTransform;
+  const sx=br.left*z+vpt[4]+ (br.width*z)/2;
+  const sy=br.top*z+vpt[5]-8;
+  ctx.save();
+  ctx.font='bold 12px sans-serif'; ctx.textAlign='center';
+  const w=ctx.measureText(txt).width+14;
+  ctx.fillStyle='rgba(43,47,56,.9)';
+  roundRect(ctx, sx-w/2, sy-20, w, 18, 4); ctx.fill();
+  ctx.fillStyle='#fff'; ctx.fillText(txt, sx, sy-7);
+  ctx.restore();
+}
+function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y);
+  ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
+
+/* ================= キャンバスイベント ================= */
+function wireCanvas(){
+  canvas.on('after:render', ()=>{ drawGrid(); drawDimBadge(); });
+
+  canvas.on('mouse:down', opt=>{
+    if(calMode){ const p=canvas.getPointer(opt.e); calClick(p); return; }
+    if(spaceDown){ isPanning=true; lastPan={x:opt.e.clientX,y:opt.e.clientY}; canvas.selection=false; canvas.setCursor('grabbing'); }
+  });
+  canvas.on('mouse:move', opt=>{
+    if(isPanning && lastPan){ const e=opt.e; const vpt=canvas.viewportTransform;
+      vpt[4]+=e.clientX-lastPan.x; vpt[5]+=e.clientY-lastPan.y; lastPan={x:e.clientX,y:e.clientY};
+      canvas.requestRenderAll(); }
+  });
+  canvas.on('mouse:up', ()=>{ isPanning=false; lastPan=null; if(!calMode) canvas.selection=true; });
+
+  // wheel zoom
+  canvas.on('mouse:wheel', opt=>{
+    const e=opt.e; e.preventDefault(); e.stopPropagation();
+    let z=canvas.getZoom(); z*= Math.pow(0.999, e.deltaY);
+    z=Math.min(Math.max(z,0.05),12);
+    canvas.zoomToPoint({x:e.offsetX,y:e.offsetY}, z); updateZoomLbl();
+  });
+
+  // snapping
+  canvas.on('object:moving', opt=>{
+    if(!document.getElementById('snapOn').checked) return;
+    const s=activeSheet(); if(!s) return;
+    const step=(+document.getElementById('gridMM').value)/s.mmPerPixel;
+    const o=opt.target;
+    o.set({ left:Math.round(o.left/step)*step, top:Math.round(o.top/step)*step });
+  });
+  canvas.on('object:rotating', opt=>{
+    const o=opt.target; const snap=15;
+    if(!opt.e.shiftKey){ o.rotate(Math.round(o.angle/snap)*snap); }
+  });
+  canvas.on('object:scaling', ()=>{ updateProps(); });
+  canvas.on('object:modified', ()=>{ syncRealSize(); updateProps(); autosave(); });
+  canvas.on('selection:created', updateProps);
+  canvas.on('selection:updated', updateProps);
+  canvas.on('selection:cleared', ()=>document.getElementById('props').classList.remove('show'));
+
+  // drag & drop from library
+  const wrap=document.getElementById('c-wrap');
+  wrap.addEventListener('dragover', e=>e.preventDefault());
+  wrap.addEventListener('drop', e=>{
+    e.preventDefault(); const key=e.dataTransfer.getData('text/fx'); if(!key) return;
+    const rect=canvas.upperCanvasEl.getBoundingClientRect();
+    const z=canvas.getZoom(), vpt=canvas.viewportTransform;
+    const x=(e.clientX-rect.left-vpt[4])/z, y=(e.clientY-rect.top-vpt[5])/z;
+    addFixture(key, {x,y});
+  });
+}
+
+function syncRealSize(){
+  const o=canvas.getActiveObject(); if(!o||!o.data) return;
+  const sz=objRealSize(o); if(sz.text) return;
+  o.data.realW=sz.w; o.data.realD=sz.d;
+}
+
+/* ================= ズーム ================= */
+function updateZoomLbl(){ document.getElementById('zoomLbl').textContent=Math.round(canvas.getZoom()*100)+'%'; }
+function zoomStep(dir){ let z=canvas.getZoom()*(dir>0?1.2:1/1.2); z=Math.min(Math.max(z,0.05),12);
+  canvas.zoomToPoint({x:canvas.width/2,y:canvas.height/2},z); updateZoomLbl(); }
+function fitView(){
+  const s=activeSheet(); if(!s||!s._imgW) return;
+  const pad=40; const zx=(canvas.width-pad)/s._imgW, zy=(canvas.height-pad)/s._imgH;
+  const z=Math.min(zx,zy); canvas.setZoom(z);
+  const vpt=canvas.viewportTransform;
+  vpt[4]=(canvas.width - s._imgW*z)/2; vpt[5]=(canvas.height - s._imgH*z)/2;
+  canvas.requestRenderAll(); updateZoomLbl();
+}
+
+/* ================= 操作 ================= */
+function deleteSel(){ const objs=canvas.getActiveObjects(); if(!objs.length) return;
+  objs.forEach(o=>canvas.remove(o)); canvas.discardActiveObject(); canvas.requestRenderAll(); autosave(); }
+function duplicateSel(){ const o=canvas.getActiveObject(); if(!o) return;
+  o.clone(cl=>{ cl.set({left:o.left+20/canvas.getZoom(), top:o.top+20/canvas.getZoom()});
+    if(o.data) cl.data=JSON.parse(JSON.stringify(o.data));
+    canvas.add(cl); canvas.setActiveObject(cl); canvas.requestRenderAll(); autosave(); },['data']); }
+function rotate90(){ const o=canvas.getActiveObject(); if(!o) return; o.rotate((Math.round(o.angle/90)*90+90)%360);
+  o.setCoords(); canvas.requestRenderAll(); updateProps(); autosave(); }
+function bringFwd(){ const o=canvas.getActiveObject(); if(o){ canvas.bringForward(o); autosave(); } }
+function sendBwd(){ const o=canvas.getActiveObject(); if(o){ canvas.sendBackwards(o); autosave(); } }
+
+/* ================= 保存・読込・書出し ================= */
+function saveProject(){
+  syncActiveObjects();
+  const data={ version:1, active:project.active, sheets:project.sheets.map(s=>({
+    name:s.name, image:s.image, mmPerPixel:s.mmPerPixel, calibrated:s.calibrated, objects:s.objects||[] })) };
+  const blob=new Blob([JSON.stringify(data)],{type:'application/json'});
+  triggerDownload(URL.createObjectURL(blob), 'layout_'+new Date().toISOString().slice(0,10)+'.json');
+  showHint('プロジェクトを保存しました');
+}
+function loadProjectData(data){
+  project.sheets = (data.sheets||[]).map(s=>({...s}));
+  project.active=-1; renderSheetList();
+  if(project.sheets.length){ const t=(data.active>=0&&data.active<project.sheets.length)?data.active:0; switchSheet(t); }
+  showHint('プロジェクトを読み込みました');
+}
+function exportPNG(){
+  const s=activeSheet(); if(!s){ showHint('図面がありません'); return; }
+  syncActiveObjects();
+  const off=new fabric.StaticCanvas(null,{width:s._imgW,height:s._imgH,backgroundColor:'#fff'});
+  fabric.Image.fromURL(s.image, img=>{
+    off.setBackgroundImage(img,()=>{
+      fabric.util.enlivenObjects(s.objects||[], objs=>{
+        objs.forEach(o=>off.add(o)); off.renderAll();
+        const url=off.toDataURL({format:'png',multiplier:1.5});
+        triggerDownload(url, (s.name||'layout')+'.png');
+        off.dispose(); showHint('PNGを書き出しました');
+      });
+    });
+  });
+}
+
+/* ================= autosave (localStorage) ================= */
+let saveTimer=null;
+function autosave(){
+  if(suppressAutosave) return;
+  clearTimeout(saveTimer);
+  saveTimer=setTimeout(()=>{
+    try{ syncActiveObjects();
+      const data={version:1,active:project.active,sheets:project.sheets};
+      localStorage.setItem('layoutSim', JSON.stringify(data));
+    }catch(e){/* quota */}
+  },600);
+}
+function tryRestore(){
+  let raw=null; try{ raw=localStorage.getItem('layoutSim'); }catch(e){}
+  if(raw){
+    try{ const data=JSON.parse(raw);
+      if(data.sheets&&data.sheets.length){
+        if(confirm('前回の作業データが見つかりました。復元しますか？')){ loadProjectData(data); return; }
+      }
+    }catch(e){}
+  }
+}
+
+/* ================= その他 ================= */
+function triggerDownload(url, filename){
+  const a=document.createElement('a'); a.href=url; a.download=filename;
+  document.body.appendChild(a); a.click();
+  setTimeout(()=>{ a.remove(); if(url.startsWith('blob:')) URL.revokeObjectURL(url); }, 100);
+}
+
+let hintTimer=null;
+function showHint(msg){
+  const h=document.getElementById('hint'); h.textContent=msg; h.classList.add('show');
+  clearTimeout(hintTimer); hintTimer=setTimeout(()=>h.classList.remove('show'),2600);
+}
+
+function bindEvents(){
+  document.getElementById('addPdf').addEventListener('change',e=>{ if(e.target.files[0]) handlePdfFile(e.target.files[0]); e.target.value=''; });
+  document.getElementById('addImg').addEventListener('change',e=>{ if(e.target.files[0]) handleImageFile(e.target.files[0]); e.target.value=''; });
+  document.getElementById('loadProj').addEventListener('change',e=>{ const f=e.target.files[0]; if(!f) return;
+    const r=new FileReader(); r.onload=x=>{ try{ loadProjectData(JSON.parse(x.target.result)); }catch(err){ alert('読み込みに失敗しました'); } }; r.readAsText(f); e.target.value=''; });
+
+  ['pW','pD','pA'].forEach(id=>document.getElementById(id).addEventListener('change',applyProps));
+  document.getElementById('pColor').addEventListener('input',applyProps);
+  document.getElementById('gridOn').addEventListener('change',()=>canvas.requestRenderAll());
+  document.getElementById('gridMM').addEventListener('change',()=>{ updateScaleBox(); canvas.requestRenderAll(); });
+
+  window.addEventListener('keydown',e=>{
+    if(e.key==='Escape'&&calMode){ endCalibration(); return; }
+    const tag=document.activeElement.tagName;
+    if(tag==='INPUT'||tag==='SELECT'||tag==='TEXTAREA') return;
+    if(e.code==='Space'){ spaceDown=true; canvas.defaultCursor='grab'; canvas.setCursor('grab'); e.preventDefault(); }
+    if(e.key==='Delete'||e.key==='Backspace'){ deleteSel(); e.preventDefault(); }
+    if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='d'){ e.preventDefault(); duplicateSel(); }
+  });
+  window.addEventListener('keyup',e=>{ if(e.code==='Space'){ spaceDown=false; canvas.defaultCursor='default'; canvas.setCursor('default'); } });
+}
+</script>
+</body>
+</html>
