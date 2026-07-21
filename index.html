@@ -124,6 +124,10 @@
   .rotslider{width:100%;margin:2px 0 8px;accent-color:var(--accent);height:4px;}
   .rotbtns{display:flex;gap:5px;flex-wrap:wrap;}
   .rotbtns .btn{padding:5px 8px;font-size:11.5px;}
+  .modeseg{display:flex;margin:0 0 10px;border:1px solid var(--line);border-radius:7px;overflow:hidden;}
+  .seg-btn{flex:1;padding:8px 8px;font-size:12px;background:#fff;border:none;cursor:pointer;color:var(--sub);}
+  .seg-btn.active{background:var(--accent);color:#fff;font-weight:700;}
+  .seg-btn+.seg-btn{border-left:1px solid var(--line);}
 
   /* Hamburger + backdrop (mobile) */
   .menu-btn{display:none;width:38px;height:38px;border:1px solid #ccd1d9;background:#fff;border-radius:8px;
@@ -288,6 +292,10 @@
     <!-- Properties -->
     <div class="props" id="props">
       <h4><span class="tag" id="pTag">什器</span><span id="pName">—</span></h4>
+      <div class="modeseg" id="modeSeg">
+        <button id="modeMove" class="seg-btn" onclick="setHandleMode(false)">🖐 移動</button>
+        <button id="modeEdit" class="seg-btn" onclick="setHandleMode(true)">⤢ サイズ・回転</button>
+      </div>
       <div class="pf">
         <label>幅 W(mm)<input type="number" class="inp" id="pW" min="1" step="10"></label>
         <label id="pDwrap">奥行 D(mm)<input type="number" class="inp" id="pD" min="1" step="10"></label>
@@ -379,6 +387,7 @@ let isPanning = false, spaceDown = false, lastPan = null;
 let suppressAutosave = false;
 const IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints>0) || window.matchMedia('(pointer:coarse)').matches;
 let pinch = { active:false, dist:0, mid:null };
+let handleMode = true; // true=サイズ/回転ハンドル有効, false=移動のみ
 
 function activeSheet(){ return project.active>=0 ? project.sheets[project.active] : null; }
 function mmpp(){ const s=activeSheet(); return s ? s.mmPerPixel : SAMPLE_MMPP; }
@@ -392,6 +401,11 @@ window.addEventListener('load', ()=>{
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
   canvas = new fabric.Canvas('c', { selection:true, preserveObjectStacking:true, backgroundColor:'#ffffff' });
+  // タップしやすいよう当たり判定に余裕（タッチは大きめ）
+  canvas.targetFindTolerance = IS_TOUCH ? 18 : 4;
+  canvas.perPixelTargetFind = false;
+  // タッチ既定は「移動モード」（ハンドル無効＝ドラッグは移動のみ、サイズ/角度は下パネルで変更）
+  handleMode = !IS_TOUCH;
   resizeCanvas();
   window.addEventListener('resize', resizeCanvas);
   buildLibrary();
@@ -474,7 +488,7 @@ function switchSheet(i){
       // load objects
       if(s.objects && s.objects.length){
         fabric.util.enlivenObjects(s.objects, objs=>{
-          objs.forEach(o=>canvas.add(o)); canvas.renderAll();
+          objs.forEach(o=>{ applyObjMode(o); canvas.add(o); }); canvas.renderAll();
         });
       } else canvas.renderAll();
       fitView();
@@ -567,9 +581,35 @@ function addFixture(key, pos){
   const obj=makeFixture(item,{});
   const p = pos || viewCenterScene();
   obj.set({ left:p.x, top:p.y });
+  applyObjMode(obj);
   canvas.add(obj); canvas.setActiveObject(obj); canvas.requestRenderAll();
   if(!pos && isMobile()) closeDrawer(); // クリック追加時はドロワーを閉じてキャンバスを表示
   autosave();
+}
+
+// 操作モードを1オブジェクトへ適用（ハンドル表示/非表示）
+function applyObjMode(o){
+  if(!o) return;
+  o.hasControls = handleMode;   // false=ハンドル無し→ドラッグは移動のみ（誤ってサイズ変更しない）
+  o.lockScalingFlip = true;
+}
+function applyInteractionMode(){
+  canvas.getObjects().forEach(applyObjMode);
+  canvas.requestRenderAll();
+}
+function setHandleMode(v){
+  handleMode = v;
+  applyInteractionMode();
+  const a=canvas.getActiveObject(); if(a){ a.hasControls=handleMode; a.setCoords(); }
+  updateModeSeg();
+  canvas.requestRenderAll();
+  showHint(v ? 'サイズ・回転モード：四隅ハンドルで変更できます' : '移動モード：ドラッグで移動のみ（サイズ/角度は下の数値で変更）');
+}
+function updateModeSeg(){
+  const mv=document.getElementById('modeMove'), ed=document.getElementById('modeEdit');
+  if(!mv||!ed) return;
+  mv.classList.toggle('active', !handleMode);
+  ed.classList.toggle('active', handleMode);
 }
 
 function viewCenterScene(){
@@ -598,6 +638,7 @@ function updateProps(){
   const box=document.getElementById('props');
   if(!o || o.type==='activeSelection'){ box.classList.remove('show'); return; }
   box.classList.add('show');
+  updateModeSeg();
   const d=o.data||{};
   document.getElementById('pName').textContent=d.name||'オブジェクト';
   const sz=objRealSize(o);
