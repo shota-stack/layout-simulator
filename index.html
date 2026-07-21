@@ -114,6 +114,14 @@
   .pf label{font-size:11px;color:var(--sub);display:flex;flex-direction:column;gap:3px;}
   .pf label input,.pf label select{margin-top:1px;}
   .props .prow2{display:flex;gap:6px;margin-top:10px;}
+  .rotrow{margin-top:11px;border-top:1px solid var(--line);padding-top:9px;}
+  .rothead{display:flex;align-items:center;gap:8px;font-size:11px;color:var(--sub);margin-bottom:6px;}
+  .rothead b{color:var(--ink);font-size:12px;}
+  .rothead input[type=number]{width:58px;}
+  .rothead .snaplbl{margin-left:auto;display:flex;align-items:center;gap:4px;color:var(--ink);cursor:pointer;}
+  .rotslider{width:100%;margin:2px 0 8px;accent-color:var(--accent);height:4px;}
+  .rotbtns{display:flex;gap:5px;flex-wrap:wrap;}
+  .rotbtns .btn{padding:5px 8px;font-size:11.5px;}
 
   /* Calibration overlay banner */
   .cal-banner{position:absolute;top:12px;left:50%;transform:translateX(-50%);
@@ -192,7 +200,7 @@
         <button class="btn sm ghost" onclick="sendBwd()">背面へ</button>
         <button class="btn sm danger" onclick="deleteSel()">削除</button>
       </div>
-      <div class="muted" style="margin-top:8px;">ショートカット: Delete=削除 / Ctrl+D=複製 / Space+ドラッグ=画面移動 / ホイール=拡大縮小</div>
+      <div class="muted" style="margin-top:8px;">ショートカット: R=15°回転 / Shift+R=逆回転 / [ ]=±15° / Delete=削除 / Ctrl+D=複製 / Space+ドラッグ=画面移動 / ホイール=拡大縮小</div>
     </div>
   </aside>
 
@@ -214,11 +222,25 @@
       <div class="pf">
         <label>幅 W(mm)<input type="number" class="inp" id="pW" min="1" step="10"></label>
         <label id="pDwrap">奥行 D(mm)<input type="number" class="inp" id="pD" min="1" step="10"></label>
-        <label>角度<input type="number" class="inp" id="pA" step="15"></label>
         <label>色<input type="color" class="colorswatch" id="pColor"></label>
       </div>
+      <div class="rotrow">
+        <div class="rothead">
+          <b>角度</b>
+          <input type="number" class="inp" id="pA" step="1" min="0" max="359">°
+          <label class="snaplbl"><input type="checkbox" id="snapRot" checked>15°刻み</label>
+        </div>
+        <input type="range" id="pASlider" class="rotslider" min="0" max="359" step="1" value="0">
+        <div class="rotbtns">
+          <button class="btn sm ghost" onclick="rotateBy(-45)" title="反時計回り45°">⟲45°</button>
+          <button class="btn sm ghost" onclick="rotateBy(-15)" title="反時計回り15°">⟲15°</button>
+          <button class="btn sm ghost" onclick="rotateBy(15)" title="時計回り15°">⟳15°</button>
+          <button class="btn sm ghost" onclick="rotateBy(45)" title="時計回り45°">⟳45°</button>
+          <button class="btn sm ghost" onclick="rotate90()">90°</button>
+          <button class="btn sm ghost" onclick="setAngle(0)">0°</button>
+        </div>
+      </div>
       <div class="prow2">
-        <button class="btn sm ghost" onclick="rotate90()">90°</button>
         <button class="btn sm ghost" onclick="duplicateSel()">複製</button>
         <button class="btn sm danger" onclick="deleteSel()">削除</button>
       </div>
@@ -499,7 +521,9 @@ function updateProps(){
   wl.childNodes[0].nodeValue = isCircle? '直径 φ(mm)' : (isText?'文字サイズ(px)':'幅 W(mm)');
   if(isText){ document.getElementById('pW').value=Math.round(o.fontSize); }
   else { document.getElementById('pW').value=sz.w; document.getElementById('pD').value=sz.d; }
-  document.getElementById('pA').value=Math.round(o.angle);
+  const ang=Math.round(o.angle);
+  document.getElementById('pA').value=ang;
+  document.getElementById('pASlider').value=ang;
   const fillObj = getFillTarget(o);
   document.getElementById('pColor').value = rgbToHex(fillObj);
 }
@@ -535,7 +559,8 @@ function applyProps(){
       d.realW=wmm; d.realD=dmm;
     }
   }
-  const a=+document.getElementById('pA').value||0; o.rotate(a);
+  let a=+document.getElementById('pA').value||0; a=((a%360)+360)%360; o.rotate(a);
+  document.getElementById('pA').value=Math.round(a); document.getElementById('pASlider').value=Math.round(a);
   setFill(o, document.getElementById('pColor').value);
   o.setCoords(); canvas.requestRenderAll(); autosave();
 }
@@ -635,7 +660,9 @@ function drawDimBadge(){
   const o=canvas.getActiveObject(); if(!o||!o.data) return;
   if(o.data.shape==='text') return;
   const sz=objRealSize(o);
-  const txt = sz.circle? `φ${sz.w}` : `${sz.w} × ${sz.d} mm`;
+  const ang=Math.round(o.angle||0);
+  const base = sz.circle? `φ${sz.w}` : `${sz.w} × ${sz.d} mm`;
+  const txt = ang? `${base}  ∠${ang}°` : base;
   const ctx=canvas.getContext();
   const br=o.getBoundingRect(true,true); // in scene coords
   const z=canvas.getZoom(), vpt=canvas.viewportTransform;
@@ -685,7 +712,11 @@ function wireCanvas(){
   });
   canvas.on('object:rotating', opt=>{
     const o=opt.target; const snap=15;
-    if(!opt.e.shiftKey){ o.rotate(Math.round(o.angle/snap)*snap); }
+    const doSnap=document.getElementById('snapRot').checked;
+    // 15°刻みON時はスナップ／Shift押下で自由回転（ONとOFFを反転）
+    if(doSnap!==opt.e.shiftKey){ o.rotate(Math.round(o.angle/snap)*snap); }
+    const ang=Math.round(o.angle);
+    document.getElementById('pA').value=ang; document.getElementById('pASlider').value=ang;
   });
   canvas.on('object:scaling', ()=>{ updateProps(); });
   canvas.on('object:modified', ()=>{ syncRealSize(); updateProps(); autosave(); });
@@ -733,6 +764,9 @@ function duplicateSel(){ const o=canvas.getActiveObject(); if(!o) return;
     canvas.add(cl); canvas.setActiveObject(cl); canvas.requestRenderAll(); autosave(); },['data']); }
 function rotate90(){ const o=canvas.getActiveObject(); if(!o) return; o.rotate((Math.round(o.angle/90)*90+90)%360);
   o.setCoords(); canvas.requestRenderAll(); updateProps(); autosave(); }
+function setAngle(a){ const o=canvas.getActiveObject(); if(!o) return;
+  a=((a%360)+360)%360; o.rotate(a); o.setCoords(); canvas.requestRenderAll(); updateProps(); autosave(); }
+function rotateBy(delta){ const o=canvas.getActiveObject(); if(!o) return; setAngle(Math.round(o.angle)+delta); }
 function bringFwd(){ const o=canvas.getActiveObject(); if(o){ canvas.bringForward(o); autosave(); } }
 function sendBwd(){ const o=canvas.getActiveObject(); if(o){ canvas.sendBackwards(o); autosave(); } }
 
@@ -810,6 +844,7 @@ function bindEvents(){
     const r=new FileReader(); r.onload=x=>{ try{ loadProjectData(JSON.parse(x.target.result)); }catch(err){ alert('読み込みに失敗しました'); } }; r.readAsText(f); e.target.value=''; });
 
   ['pW','pD','pA'].forEach(id=>document.getElementById(id).addEventListener('change',applyProps));
+  document.getElementById('pASlider').addEventListener('input',e=>setAngle(+e.target.value));
   document.getElementById('pColor').addEventListener('input',applyProps);
   document.getElementById('gridOn').addEventListener('change',()=>canvas.requestRenderAll());
   document.getElementById('gridMM').addEventListener('change',()=>{ updateScaleBox(); canvas.requestRenderAll(); });
@@ -821,6 +856,9 @@ function bindEvents(){
     if(e.code==='Space'){ spaceDown=true; canvas.defaultCursor='grab'; canvas.setCursor('grab'); e.preventDefault(); }
     if(e.key==='Delete'||e.key==='Backspace'){ deleteSel(); e.preventDefault(); }
     if((e.ctrlKey||e.metaKey)&&e.key.toLowerCase()==='d'){ e.preventDefault(); duplicateSel(); }
+    if(e.key==='r'||e.key==='R'){ if(canvas.getActiveObject()){ rotateBy(e.shiftKey?-15:15); e.preventDefault(); } }
+    if(e.key==='['){ if(canvas.getActiveObject()){ rotateBy(-15); e.preventDefault(); } }
+    if(e.key===']'){ if(canvas.getActiveObject()){ rotateBy(15); e.preventDefault(); } }
   });
   window.addEventListener('keyup',e=>{ if(e.code==='Space'){ spaceDown=false; canvas.defaultCursor='default'; canvas.setCursor('default'); } });
 }
