@@ -2,7 +2,7 @@
 <html lang="ja">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>図面レイアウトシミュレーター</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
@@ -123,6 +123,42 @@
   .rotbtns{display:flex;gap:5px;flex-wrap:wrap;}
   .rotbtns .btn{padding:5px 8px;font-size:11.5px;}
 
+  /* Hamburger + backdrop (mobile) */
+  .menu-btn{display:none;width:38px;height:38px;border:1px solid #ccd1d9;background:#fff;border-radius:8px;
+            font-size:19px;line-height:1;cursor:pointer;color:var(--ink);flex:0 0 auto;}
+  #backdrop{display:none;position:fixed;inset:0;background:rgba(20,24,31,.42);z-index:25;}
+  #backdrop.show{display:block;}
+  #c-wrap, #c-wrap canvas{touch-action:none;}
+
+  /* ===== タブレット・スマホ ===== */
+  @media (max-width:860px){
+    .menu-btn{display:inline-flex;align-items:center;justify-content:center;}
+    header{gap:8px;padding:0 10px;}
+    header .logo{font-size:14px;min-width:0;flex:1 1 auto;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+    header .logo small{display:none;}
+    header .spacer{display:none;}
+    header .hbtn{padding:8px 9px;font-size:12px;}
+    header .hbtn .lbl{display:none;}       /* アイコンのみ */
+    .sidebar{position:fixed;top:52px;left:0;height:calc(100% - 52px);width:min(86vw,320px);
+             transform:translateX(-100%);transition:transform .25s ease;z-index:30;
+             box-shadow:4px 0 20px rgba(0,0,0,.18);}
+    .sidebar.open{transform:none;}
+    .props{left:8px;right:8px;bottom:8px;min-width:0;max-height:52vh;overflow-y:auto;}
+    .props .pf{gap:8px;}
+    .zoombar{bottom:calc(env(safe-area-inset-bottom,0px) + 12px);}
+    .zoombar button{width:36px;height:36px;font-size:18px;}
+    /* タッチしやすいサイズ */
+    .part{padding:9px 6px;}
+    .btn.sm{padding:8px 11px;font-size:12.5px;}
+    .rotbtns .btn{padding:8px 10px;}
+    .toggle input,.pf input,.inp{min-height:32px;}
+    .empty h2{font-size:16px;} .empty p{font-size:12.5px;}
+  }
+  @media (max-width:480px){
+    header .logo{font-size:13px;}
+    .props{max-height:56vh;}
+  }
+
   /* Calibration overlay banner */
   .cal-banner{position:absolute;top:12px;left:50%;transform:translateX(-50%);
     background:var(--ok);color:#fff;padding:8px 16px;border-radius:8px;font-size:12.5px;z-index:8;display:none;
@@ -137,12 +173,15 @@
 </head>
 <body>
 <header>
+  <button class="menu-btn" id="menuBtn" onclick="toggleDrawer()" aria-label="メニュー">☰</button>
   <div class="logo">図面レイアウトシミュレーター<small>実寸ドラッグ配置</small></div>
   <div class="spacer"></div>
-  <button class="btn ghost hbtn" onclick="saveProject()">💾 保存(JSON)</button>
-  <label class="btn ghost hbtn" style="cursor:pointer;">📂 読込<input type="file" id="loadProj" accept="application/json"></label>
-  <button class="btn outline hbtn" onclick="exportPNG()">🖼 PNG書出し</button>
+  <button class="btn ghost hbtn" onclick="saveProject()">💾<span class="lbl"> 保存(JSON)</span></button>
+  <label class="btn ghost hbtn" style="cursor:pointer;">📂<span class="lbl"> 読込</span><input type="file" id="loadProj" accept="application/json"></label>
+  <button class="btn outline hbtn" onclick="exportPNG()">🖼<span class="lbl"> PNG書出し</span></button>
 </header>
+
+<div id="backdrop" onclick="closeDrawer()"></div>
 
 <div class="app">
   <!-- Sidebar -->
@@ -210,7 +249,10 @@
 
     <div class="empty" id="emptyState">
       <h2>図面を読み込んでください</h2>
-      <p>左上の「＋PDF」または「＋画像」から図面を読み込んでください。読み込んだら「縮尺を設定」で実寸を合わせ、什器をドラッグして配置します。図面データはブラウザ内だけで処理され、外部に送信されません。</p>
+      <p>「＋PDF」または「＋画像」から図面を読み込んでください（スマホでは左上の ☰ メニュー内）。読み込んだら「縮尺を設定」で実寸を合わせ、什器をドラッグして配置します。図面データはブラウザ内だけで処理され、外部に送信されません。</p>
+      <div class="row" style="justify-content:center;">
+        <button class="btn" onclick="openDrawer()">☰ 図面を読み込む</button>
+      </div>
     </div>
 
     <div class="canvas-hint" id="hint"></div>
@@ -306,6 +348,8 @@ const project = { sheets: [], active: -1 };
 let calMode = false, calP1 = null, calLine = null, calDots = [];
 let isPanning = false, spaceDown = false, lastPan = null;
 let suppressAutosave = false;
+const IS_TOUCH = ('ontouchstart' in window) || (navigator.maxTouchPoints>0) || window.matchMedia('(pointer:coarse)').matches;
+let pinch = { active:false, dist:0, mid:null };
 
 function activeSheet(){ return project.active>=0 ? project.sheets[project.active] : null; }
 function mmpp(){ const s=activeSheet(); return s ? s.mmPerPixel : SAMPLE_MMPP; }
@@ -314,6 +358,7 @@ function mmpp(){ const s=activeSheet(); return s ? s.mmPerPixel : SAMPLE_MMPP; }
 window.addEventListener('load', ()=>{
   fabric.Object.prototype.set({ transparentCorners:false, cornerColor:'#0066cc', cornerStyle:'circle',
       borderColor:'#0066cc', cornerSize:9, padding:2, borderScaleFactor:1.4 });
+  fabric.Object.prototype.touchCornerSize = 32; // タッチ操作用の大きめハンドル
   if (window['pdfjsLib']) pdfjsLib.GlobalWorkerOptions.workerSrc =
       'https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js';
 
@@ -324,6 +369,8 @@ window.addEventListener('load', ()=>{
   bindEvents();
   wireCanvas();
   tryRestore();
+  // モバイルで図面が無ければメニュー（ドロワー）を開いて操作を促す
+  if(isMobile() && project.sheets.length===0) openDrawer();
 });
 
 function resizeCanvas(){
@@ -371,7 +418,7 @@ function renderSheetList(){
 
 function addSheet(sheet, switchTo=true){
   project.sheets.push(sheet); renderSheetList();
-  if(switchTo) switchSheet(project.sheets.length-1);
+  if(switchTo){ switchSheet(project.sheets.length-1); if(isMobile()) closeDrawer(); }
   autosave();
 }
 
@@ -420,6 +467,7 @@ function loadSamples(){
     addSheet({ name:SAMPLES[k].name, image:SAMPLES[k].data, mmPerPixel:SAMPLE_MMPP, calibrated:true, objects:[] }, false);
   });
   switchSheet(project.sheets.length-keys.length);
+  if(isMobile()) closeDrawer();
   showHint('サンプル図面を読み込みました（縮尺1:25として設定済み）');
 }
 
@@ -475,12 +523,13 @@ function makeFixture(item, opts){
 }
 
 function addFixture(key, pos){
-  if(project.active<0){ showHint('先に図面シートを読み込んでください'); return; }
+  if(project.active<0){ showHint('先に図面シートを読み込んでください'); if(isMobile())closeDrawer(); return; }
   const item=ITEM_INDEX[key]; if(!item) return;
   const obj=makeFixture(item,{});
-  const p = pos || canvas.getVpCenter ? (pos||viewCenterScene()) : viewCenterScene();
+  const p = pos || viewCenterScene();
   obj.set({ left:p.x, top:p.y });
   canvas.add(obj); canvas.setActiveObject(obj); canvas.requestRenderAll();
+  if(!pos && isMobile()) closeDrawer(); // クリック追加時はドロワーを閉じてキャンバスを表示
   autosave();
 }
 
@@ -679,20 +728,63 @@ function drawDimBadge(){
 function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y);
   ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 
+/* ================= タッチ / ドロワー ================= */
+function clientXY(e){
+  if(e.touches && e.touches[0]) return {x:e.touches[0].clientX, y:e.touches[0].clientY};
+  if(e.changedTouches && e.changedTouches[0]) return {x:e.changedTouches[0].clientX, y:e.changedTouches[0].clientY};
+  return {x:e.clientX, y:e.clientY};
+}
+function twoDist(e){ const a=e.touches[0], b=e.touches[1]; return Math.hypot(a.clientX-b.clientX, a.clientY-b.clientY); }
+function twoMid(e){ const a=e.touches[0], b=e.touches[1]; return {x:(a.clientX+b.clientX)/2, y:(a.clientY+b.clientY)/2}; }
+
+function setupPinch(){
+  const el=canvas.upperCanvasEl;
+  el.addEventListener('touchstart', e=>{
+    if(e.touches.length===2){ pinch.active=true; pinch.dist=twoDist(e); pinch.mid=twoMid(e);
+      isPanning=false; lastPan=null; canvas.discardActiveObject(); canvas.requestRenderAll();
+      e.preventDefault(); e.stopPropagation(); }
+  }, {passive:false, capture:true});
+  el.addEventListener('touchmove', e=>{
+    if(pinch.active && e.touches.length===2){
+      e.preventDefault(); e.stopPropagation();
+      const d=twoDist(e), m=twoMid(e), rect=el.getBoundingClientRect();
+      let z=canvas.getZoom()*(d/(pinch.dist||d)); z=Math.min(Math.max(z,0.05),12);
+      canvas.zoomToPoint({x:m.x-rect.left, y:m.y-rect.top}, z);
+      const vpt=canvas.viewportTransform; vpt[4]+=m.x-pinch.mid.x; vpt[5]+=m.y-pinch.mid.y;
+      canvas.requestRenderAll(); pinch.dist=d; pinch.mid=m; updateZoomLbl();
+    }
+  }, {passive:false, capture:true});
+  const endT=e=>{ if(e.touches.length<2 && pinch.active){ pinch.active=false; setTimeout(()=>{isPanning=false;lastPan=null;},0); } };
+  el.addEventListener('touchend', endT, {passive:false, capture:true});
+  el.addEventListener('touchcancel', endT, {passive:false, capture:true});
+}
+
+function toggleDrawer(){ document.querySelector('.sidebar').classList.contains('open')?closeDrawer():openDrawer(); }
+function openDrawer(){ document.querySelector('.sidebar').classList.add('open'); document.getElementById('backdrop').classList.add('show'); }
+function closeDrawer(){ document.querySelector('.sidebar').classList.remove('open'); document.getElementById('backdrop').classList.remove('show'); }
+function isMobile(){ return window.matchMedia('(max-width:860px)').matches; }
+
 /* ================= キャンバスイベント ================= */
 function wireCanvas(){
   canvas.on('after:render', ()=>{ drawGrid(); drawDimBadge(); });
 
   canvas.on('mouse:down', opt=>{
+    if(pinch.active) return;
     if(calMode){ const p=canvas.getPointer(opt.e); calClick(p); return; }
-    if(spaceDown){ isPanning=true; lastPan={x:opt.e.clientX,y:opt.e.clientY}; canvas.selection=false; canvas.setCursor('grabbing'); }
+    // PC: Space+ドラッグ / タッチ: 何もない所を1本指ドラッグで画面移動
+    const emptyTouchPan = IS_TOUCH && !opt.target;
+    if(spaceDown || emptyTouchPan){ const c=clientXY(opt.e); isPanning=true; lastPan=c;
+      canvas.selection=false; canvas.setCursor('grabbing'); }
   });
   canvas.on('mouse:move', opt=>{
-    if(isPanning && lastPan){ const e=opt.e; const vpt=canvas.viewportTransform;
-      vpt[4]+=e.clientX-lastPan.x; vpt[5]+=e.clientY-lastPan.y; lastPan={x:e.clientX,y:e.clientY};
+    if(isPanning && lastPan && !pinch.active){ const c=clientXY(opt.e); const vpt=canvas.viewportTransform;
+      vpt[4]+=c.x-lastPan.x; vpt[5]+=c.y-lastPan.y; lastPan=c;
       canvas.requestRenderAll(); }
   });
-  canvas.on('mouse:up', ()=>{ isPanning=false; lastPan=null; if(!calMode) canvas.selection=true; });
+  canvas.on('mouse:up', ()=>{ isPanning=false; lastPan=null; if(!calMode && !IS_TOUCH) canvas.selection=true; });
+
+  // ピンチでズーム＋2本指パン（タッチ）
+  if(IS_TOUCH){ setupPinch(); if(!calMode) canvas.selection=false; }
 
   // wheel zoom
   canvas.on('mouse:wheel', opt=>{
