@@ -16,7 +16,7 @@
   *{box-sizing:border-box;margin:0;padding:0;}
   html,body{height:100%;}
   body{font-family:"Hiragino Kaku Gothic ProN","Yu Gothic UI","Meiryo",sans-serif;
-       display:flex;flex-direction:column;height:100vh;background:var(--bg);color:var(--ink);overflow:hidden;}
+       display:flex;flex-direction:column;height:100vh;height:100dvh;background:var(--bg);color:var(--ink);overflow:hidden;}
 
   /* Header */
   header{height:52px;flex:0 0 auto;background:#fff;border-bottom:1px solid var(--line);
@@ -145,10 +145,12 @@
              transform:translateX(-100%);transition:transform .25s ease;z-index:30;
              box-shadow:4px 0 20px rgba(0,0,0,.18);}
     .sidebar.open{transform:none;}
-    .props{left:8px;right:8px;bottom:8px;min-width:0;max-height:52vh;overflow-y:auto;}
+    .props{left:8px;right:8px;bottom:8px;min-width:0;max-height:50dvh;overflow-y:auto;}
     .props .pf{gap:8px;}
-    .zoombar{bottom:calc(env(safe-area-inset-bottom,0px) + 12px);}
-    .zoombar button{width:36px;height:36px;font-size:18px;}
+    /* ズームバーは上部右へ（下部のプロパティパネルに隠れず、ブラウザUIで見切れない） */
+    .zoombar{top:8px;bottom:auto;right:8px;padding:4px 6px;}
+    .zoombar button{width:34px;height:34px;font-size:17px;}
+    .zoombar .z{min-width:40px;font-size:11.5px;}
     /* タッチしやすいサイズ */
     .part{padding:9px 6px;}
     .btn.sm{padding:8px 11px;font-size:12.5px;}
@@ -765,6 +767,33 @@ function drawDimBadge(){
 function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y);
   ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 
+/* 配置済みの全什器に、実寸を薄く常時表示（選択中のものは上のバッジを優先） */
+function drawAllDimLabels(){
+  if(project.active<0) return;
+  const active=canvas.getActiveObject();
+  const activeSet = active && active.type==='activeSelection' ? new Set(active.getObjects()) : null;
+  const z=canvas.getZoom(), vpt=canvas.viewportTransform, ctx=canvas.getContext();
+  ctx.save();
+  ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
+  canvas.getObjects().forEach(o=>{
+    if(!o.data || o.data.shape==='text') return;
+    if(o===active) return;                 // 選択中は下のバッジで表示
+    if(activeSet && activeSet.has(o)) return;
+    const br=o.getBoundingRect(true,true);
+    if(br.width*z < 26) return;            // 小さすぎる時は非表示
+    const sz=objRealSize(o);
+    const label = sz.circle? `φ${sz.w}` : `${sz.w}×${sz.d}`;
+    const cx=(br.left+br.width/2)*z+vpt[4];
+    const cy=(br.top+br.height)*z+vpt[5]-3; // オブジェクト下端の内側
+    const tw=ctx.measureText(label).width;
+    ctx.fillStyle='rgba(255,255,255,0.6)';
+    ctx.fillRect(cx-tw/2-3, cy-8, tw+6, 15);
+    ctx.fillStyle='rgba(35,45,60,0.62)';
+    ctx.fillText(label, cx, cy);
+  });
+  ctx.restore();
+}
+
 /* ================= タッチ / ドロワー ================= */
 function clientXY(e){
   if(e.touches && e.touches[0]) return {x:e.touches[0].clientX, y:e.touches[0].clientY};
@@ -803,7 +832,7 @@ function isMobile(){ return window.matchMedia('(max-width:860px)').matches; }
 
 /* ================= キャンバスイベント ================= */
 function wireCanvas(){
-  canvas.on('after:render', ()=>{ drawGrid(); drawDimBadge(); });
+  canvas.on('after:render', ()=>{ drawGrid(); drawAllDimLabels(); drawDimBadge(); });
 
   canvas.on('mouse:down', opt=>{
     if(pinch.active) return;
