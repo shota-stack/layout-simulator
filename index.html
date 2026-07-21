@@ -110,8 +110,15 @@
   .props{position:absolute;left:14px;bottom:14px;background:#fff;border:1px solid var(--line);border-radius:10px;
     box-shadow:0 3px 14px rgba(0,0,0,.12);padding:11px 14px;z-index:7;display:none;min-width:280px;}
   .props.show{display:block;}
-  .props h4{font-size:12.5px;margin-bottom:9px;display:flex;align-items:center;gap:8px;}
-  .props h4 .tag{background:#eef5ff;color:var(--accent);border-radius:4px;padding:1px 7px;font-size:11px;}
+  .props.show.dragging{opacity:0;pointer-events:none;transition:opacity .1s;} /* 移動中は一時的に隠す */
+  .props-head{font-size:12.5px;margin-bottom:9px;display:flex;align-items:center;gap:8px;}
+  .props-head .tag{background:#eef5ff;color:var(--accent);border-radius:4px;padding:1px 7px;font-size:11px;}
+  .props-head .ph-sp{flex:1;}
+  .phbtn{border:1px solid var(--line);background:#fff;border-radius:6px;cursor:pointer;color:var(--sub);
+         font-size:11.5px;padding:4px 8px;line-height:1;}
+  .phbtn:hover{background:#eef1f5;}
+  #propsToggle{display:none;} /* 詳細トグルはモバイルのみ表示 */
+  .props.collapsed .props-details{display:none;}
   .pf{display:flex;gap:10px;flex-wrap:wrap;align-items:flex-end;}
   .pf label{font-size:11px;color:var(--sub);display:flex;flex-direction:column;gap:3px;}
   .pf label input,.pf label select{margin-top:1px;}
@@ -149,8 +156,11 @@
              transform:translateX(-100%);transition:transform .25s ease;z-index:30;
              box-shadow:4px 0 20px rgba(0,0,0,.18);}
     .sidebar.open{transform:none;}
-    .props{left:8px;right:8px;bottom:8px;min-width:0;max-height:50dvh;overflow-y:auto;}
+    .props{left:8px;right:8px;bottom:8px;min-width:0;max-height:64dvh;overflow-y:auto;}
     .props .pf{gap:8px;}
+    #propsToggle{display:inline-block;}   /* モバイルは詳細トグルを表示 */
+    /* コンパクト時は名前＋移動/サイズ切替のみ表示（画面を広く保つ） */
+    .props.collapsed{max-height:none;}
     /* ズームバーは上部右へ（下部のプロパティパネルに隠れず、ブラウザUIで見切れない） */
     .zoombar{top:8px;bottom:auto;right:8px;padding:4px 6px;}
     .zoombar button{width:34px;height:34px;font-size:17px;}
@@ -291,11 +301,17 @@
 
     <!-- Properties -->
     <div class="props" id="props">
-      <h4><span class="tag" id="pTag">什器</span><span id="pName">—</span></h4>
+      <div class="props-head">
+        <span class="tag" id="pTag">什器</span><span id="pName">—</span>
+        <span class="ph-sp"></span>
+        <button class="phbtn" id="propsToggle" onclick="togglePropsExpand()" title="詳細の表示切替">詳細 ▾</button>
+        <button class="phbtn" onclick="deselectActive()" title="選択を解除">✕</button>
+      </div>
       <div class="modeseg" id="modeSeg">
         <button id="modeMove" class="seg-btn" onclick="setHandleMode(false)">🖐 移動</button>
         <button id="modeEdit" class="seg-btn" onclick="setHandleMode(true)">⤢ サイズ・回転</button>
       </div>
+      <div class="props-details" id="propsDetails">
       <div class="pf">
         <label>幅 W(mm)<input type="number" class="inp" id="pW" min="1" step="10"></label>
         <label id="pDwrap">奥行 D(mm)<input type="number" class="inp" id="pD" min="1" step="10"></label>
@@ -321,6 +337,7 @@
         <button class="btn sm ghost" onclick="duplicateSel()">複製</button>
         <button class="btn sm danger" onclick="deleteSel()">削除</button>
       </div>
+      </div><!-- /props-details -->
     </div>
 
     <!-- Zoom -->
@@ -633,11 +650,23 @@ function objRealSize(o){
   return {w, d:h, circle:d.shape==='circle'};
 }
 
+let propsExpanded=false; // モバイル既定はコンパクト（詳細は畳む）
+function applyPropsCollapse(){
+  const box=document.getElementById('props');
+  const collapse = isMobile() && !propsExpanded;
+  box.classList.toggle('collapsed', collapse);
+  const t=document.getElementById('propsToggle');
+  if(t) t.textContent = collapse ? '詳細 ▾' : '閉じる ▴';
+}
+function togglePropsExpand(){ propsExpanded=!propsExpanded; applyPropsCollapse(); }
+function deselectActive(){ canvas.discardActiveObject(); canvas.requestRenderAll(); }
+
 function updateProps(){
   const o=canvas.getActiveObject();
   const box=document.getElementById('props');
-  if(!o || o.type==='activeSelection'){ box.classList.remove('show'); return; }
+  if(!o || o.type==='activeSelection'){ box.classList.remove('show','dragging'); return; }
   box.classList.add('show');
+  applyPropsCollapse();
   updateModeSeg();
   const d=o.data||{};
   document.getElementById('pName').textContent=d.name||'オブジェクト';
@@ -861,7 +890,8 @@ function wireCanvas(){
       vpt[4]+=c.x-lastPan.x; vpt[5]+=c.y-lastPan.y; lastPan=c;
       canvas.requestRenderAll(); }
   });
-  canvas.on('mouse:up', ()=>{ isPanning=false; lastPan=null; if(!calMode && !IS_TOUCH) canvas.selection=true; });
+  canvas.on('mouse:up', ()=>{ isPanning=false; lastPan=null; if(!calMode && !IS_TOUCH) canvas.selection=true;
+    document.getElementById('props').classList.remove('dragging'); });
 
   // ピンチでズーム＋2本指パン（タッチ）
   if(IS_TOUCH){ setupPinch(); if(!calMode) canvas.selection=false; }
@@ -876,6 +906,7 @@ function wireCanvas(){
 
   // snapping
   canvas.on('object:moving', opt=>{
+    document.getElementById('props').classList.add('dragging'); // 移動中はパネルを一時的に隠す
     if(!document.getElementById('snapOn').checked) return;
     const s=activeSheet(); if(!s) return;
     const step=(+document.getElementById('gridMM').value)/s.mmPerPixel;
@@ -891,7 +922,7 @@ function wireCanvas(){
     document.getElementById('pA').value=ang; document.getElementById('pASlider').value=ang;
   });
   canvas.on('object:scaling', ()=>{ updateProps(); });
-  canvas.on('object:modified', ()=>{ syncRealSize(); updateProps(); autosave(); });
+  canvas.on('object:modified', ()=>{ document.getElementById('props').classList.remove('dragging'); syncRealSize(); updateProps(); autosave(); });
   canvas.on('selection:created', updateProps);
   canvas.on('selection:updated', updateProps);
   canvas.on('selection:cleared', ()=>document.getElementById('props').classList.remove('show'));
