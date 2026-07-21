@@ -767,33 +767,6 @@ function drawDimBadge(){
 function roundRect(ctx,x,y,w,h,r){ ctx.beginPath(); ctx.moveTo(x+r,y);
   ctx.arcTo(x+w,y,x+w,y+h,r); ctx.arcTo(x+w,y+h,x,y+h,r); ctx.arcTo(x,y+h,x,y,r); ctx.arcTo(x,y,x+w,y,r); ctx.closePath(); }
 
-/* 配置済みの全什器に、実寸を薄く常時表示（選択中のものは上のバッジを優先） */
-function drawAllDimLabels(){
-  if(project.active<0) return;
-  const active=canvas.getActiveObject();
-  const activeSet = active && active.type==='activeSelection' ? new Set(active.getObjects()) : null;
-  const z=canvas.getZoom(), vpt=canvas.viewportTransform, ctx=canvas.getContext();
-  ctx.save();
-  ctx.font='11px sans-serif'; ctx.textAlign='center'; ctx.textBaseline='middle';
-  canvas.getObjects().forEach(o=>{
-    if(!o.data || o.data.shape==='text') return;
-    if(o===active) return;                 // 選択中は下のバッジで表示
-    if(activeSet && activeSet.has(o)) return;
-    const br=o.getBoundingRect(true,true);
-    if(br.width*z < 26) return;            // 小さすぎる時は非表示
-    const sz=objRealSize(o);
-    const label = sz.circle? `φ${sz.w}` : `${sz.w}×${sz.d}`;
-    const cx=(br.left+br.width/2)*z+vpt[4];
-    const cy=(br.top+br.height)*z+vpt[5]-3; // オブジェクト下端の内側
-    const tw=ctx.measureText(label).width;
-    ctx.fillStyle='rgba(255,255,255,0.6)';
-    ctx.fillRect(cx-tw/2-3, cy-8, tw+6, 15);
-    ctx.fillStyle='rgba(35,45,60,0.62)';
-    ctx.fillText(label, cx, cy);
-  });
-  ctx.restore();
-}
-
 /* ================= タッチ / ドロワー ================= */
 function clientXY(e){
   if(e.touches && e.touches[0]) return {x:e.touches[0].clientX, y:e.touches[0].clientY};
@@ -832,7 +805,7 @@ function isMobile(){ return window.matchMedia('(max-width:860px)').matches; }
 
 /* ================= キャンバスイベント ================= */
 function wireCanvas(){
-  canvas.on('after:render', ()=>{ drawGrid(); drawAllDimLabels(); drawDimBadge(); });
+  canvas.on('after:render', ()=>{ drawGrid(); drawDimBadge(); });
 
   canvas.on('mouse:down', opt=>{
     if(pinch.active) return;
