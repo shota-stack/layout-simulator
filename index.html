@@ -6,6 +6,7 @@
 <title>図面レイアウトシミュレーター</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/fabric.js/5.3.1/fabric.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
   :root{
     --bg:#f4f5f7; --panel:#ffffff; --line:#e2e5ea; --ink:#2b2f38; --sub:#6b7280;
@@ -178,7 +179,9 @@
   <div class="spacer"></div>
   <button class="btn ghost hbtn" onclick="saveProject()">💾<span class="lbl"> 保存(JSON)</span></button>
   <label class="btn ghost hbtn" style="cursor:pointer;">📂<span class="lbl"> 読込</span><input type="file" id="loadProj" accept="application/json"></label>
-  <button class="btn outline hbtn" onclick="exportPNG()">🖼<span class="lbl"> PNG書出し</span></button>
+  <button class="btn outline hbtn" onclick="exportPNG()">🖼<span class="lbl"> PNG</span></button>
+  <button class="btn outline hbtn" onclick="exportPDF()">📄<span class="lbl"> PDF</span></button>
+  <button class="btn hbtn" onclick="printLayout()">🖨<span class="lbl"> 印刷</span></button>
 </header>
 
 <div id="backdrop" onclick="closeDrawer()"></div>
@@ -240,6 +243,27 @@
         <button class="btn sm danger" onclick="deleteSel()">削除</button>
       </div>
       <div class="muted" style="margin-top:8px;">ショートカット: R=15°回転 / Shift+R=逆回転 / [ ]=±15° / Delete=削除 / Ctrl+D=複製 / Space+ドラッグ=画面移動 / ホイール=拡大縮小</div>
+    </div>
+
+    <!-- Output -->
+    <div class="section">
+      <h3>出力・印刷</h3>
+      <div class="toggle" style="margin-bottom:8px;">
+        <label for="paperSize">用紙</label>
+        <select id="paperSize" class="inp">
+          <option value="a4" selected>A4</option>
+          <option value="a3">A3</option>
+          <option value="a5">A5</option>
+          <option value="letter">Letter</option>
+        </select>
+        <span class="muted">向きは図面に合わせ自動</span>
+      </div>
+      <div class="row">
+        <button class="btn sm outline" onclick="exportPNG()">🖼 PNG</button>
+        <button class="btn sm outline" onclick="exportPDF()">📄 PDF出力</button>
+        <button class="btn sm" onclick="printLayout()">🖨 印刷</button>
+      </div>
+      <div class="muted" style="margin-top:7px;">現在表示中のシート（図面＋配置）を用紙に収めて出力します。グリッドは印刷されません。</div>
     </div>
   </aside>
 
@@ -877,7 +901,8 @@ function loadProjectData(data){
   if(project.sheets.length){ const t=(data.active>=0&&data.active<project.sheets.length)?data.active:0; switchSheet(t); }
   showHint('プロジェクトを読み込みました');
 }
-function exportPNG(){
+// 現在のシート（図面＋什器、グリッド無し）を合成してPNGのdataURLを生成
+function renderComposite(cb, multiplier){
   const s=activeSheet(); if(!s){ showHint('図面がありません'); return; }
   syncActiveObjects();
   const off=new fabric.StaticCanvas(null,{width:s._imgW,height:s._imgH,backgroundColor:'#fff'});
@@ -885,12 +910,60 @@ function exportPNG(){
     off.setBackgroundImage(img,()=>{
       fabric.util.enlivenObjects(s.objects||[], objs=>{
         objs.forEach(o=>off.add(o)); off.renderAll();
-        const url=off.toDataURL({format:'png',multiplier:1.5});
-        triggerDownload(url, (s.name||'layout')+'.png');
-        off.dispose(); showHint('PNGを書き出しました');
+        const url=off.toDataURL({format:'png',multiplier:multiplier||2});
+        off.dispose();
+        cb(url, s._imgW, s._imgH, s);
       });
     });
   });
+}
+
+function exportPNG(){
+  renderComposite((url,w,h,s)=>{
+    triggerDownload(url, (s.name||'layout')+'.png');
+    showHint('PNGを書き出しました');
+  }, 2);
+}
+
+function exportPDF(){
+  if(!window.jspdf || !window.jspdf.jsPDF){ showHint('PDFライブラリの読み込みに失敗しました（オンライン環境が必要）'); return; }
+  const fmt=(document.getElementById('paperSize')||{}).value || 'a4';
+  renderComposite((url,w,h,s)=>{
+    const { jsPDF }=window.jspdf;
+    const orient = w>=h ? 'landscape':'portrait';
+    const pdf=new jsPDF({orientation:orient, unit:'mm', format:fmt});
+    const pw=pdf.internal.pageSize.getWidth(), ph=pdf.internal.pageSize.getHeight();
+    const margin=8, availW=pw-margin*2, availH=ph-margin*2, ratio=w/h;
+    let dw=availW, dh=availW/ratio; if(dh>availH){ dh=availH; dw=availH*ratio; }
+    const x=(pw-dw)/2, y=(ph-dh)/2;
+    pdf.addImage(url,'PNG',x,y,dw,dh,undefined,'FAST');
+    // フッター：縮尺情報（jsPDF標準フォントは日本語非対応のためASCIIのみ）
+    pdf.setFontSize(8); pdf.setTextColor(120);
+    const note=s.calibrated ? `Scale: 1px = ${s.mmPerPixel.toFixed(3)} mm` : 'Scale: not calibrated';
+    try{ pdf.text(note, margin, ph-3); }catch(e){}
+    triggerDownload(URL.createObjectURL(pdf.output('blob')), (s.name||'layout')+'.pdf');
+    showHint('PDFを書き出しました');
+  }, 2);
+}
+
+function printLayout(){
+  renderComposite((url,w,h,s)=>{
+    let f=document.getElementById('printFrame'); if(f) f.remove();
+    f=document.createElement('iframe'); f.id='printFrame';
+    f.style.cssText='position:fixed;right:0;bottom:0;width:0;height:0;border:0;';
+    document.body.appendChild(f);
+    const orient = w>=h ? 'landscape':'portrait';
+    const doc=f.contentWindow.document; doc.open();
+    doc.write('<!DOCTYPE html><html><head><meta charset="utf-8"><title>'+(s.name||'layout')+
+      '</title><style>@page{size:'+orient+';margin:8mm}html,body{margin:0;padding:0}'+
+      'img{max-width:100%;max-height:100vh;display:block;margin:0 auto}</style></head><body>'+
+      '<img src="'+url+'"></body></html>');
+    doc.close();
+    const img=doc.querySelector('img');
+    const go=()=>{ try{ f.contentWindow.focus(); f.contentWindow.print(); }catch(e){} };
+    if(img.complete) setTimeout(go,150); else img.onload=()=>setTimeout(go,150);
+    showHint('印刷ダイアログを準備しました');
+  }, 2);
 }
 
 /* ================= autosave (localStorage) ================= */
