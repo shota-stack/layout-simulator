@@ -73,7 +73,8 @@
   .part{border:1px solid var(--line);border-radius:6px;padding:7px 6px;cursor:grab;background:#fff;
         font-size:11px;text-align:center;line-height:1.3;transition:.12s;user-select:none;}
   .part:hover{border-color:var(--accent);background:#f2f8ff;transform:translateY(-1px);}
-  .part .sw{display:inline-block;width:100%;height:20px;border-radius:3px;margin-bottom:4px;border:1px solid rgba(0,0,0,.15);}
+  .part .swbox{height:34px;display:flex;align-items:center;justify-content:center;margin-bottom:4px;}
+  .part .sw{border-radius:3px;border:1px solid rgba(0,0,0,.18);}
   .part .dim{color:var(--sub);font-size:10px;}
 
   /* Toggle line */
@@ -335,6 +336,8 @@ const LIBRARY = [
     { key:"chair_sq",    name:"角イス", shape:"rect",   w:450, d:450, color:"#8fb6a3" },
     { key:"table2",      name:"2人テーブル", shape:"rect", w:600, d:700, color:"#e9c46a" },
     { key:"table4",      name:"4人テーブル", shape:"rect", w:1200, d:700, color:"#e9c46a" },
+    { key:"rtable2",     name:"丸テーブル2人", shape:"circle", w:600, d:600, color:"#e9c46a" },
+    { key:"rtable4",     name:"丸テーブル4人", shape:"circle", w:900, d:900, color:"#e9c46a" },
     { key:"counter",     name:"カウンター天板", shape:"rect", w:1800, d:400, color:"#d9a066" },
     { key:"sofa",        name:"ソファ席", shape:"rect", w:1200, d:600, color:"#b7a4c9" },
     { key:"stool",       name:"スツール", shape:"circle", w:380, d:380, color:"#8fb6a3" },
@@ -414,11 +417,21 @@ function buildLibrary(){
     const parts=document.createElement('div'); parts.className='parts';
     c.items.forEach(it=>{
       const p=document.createElement('div'); p.className='part'; p.draggable=true;
-      const dim = it.shape==='text' ? 'ラベル' : (it.shape==='circle'?`φ${it.w}`:`${it.w}×${it.d}`);
-      const swStyle = it.shape==='circle'
-        ? `border-radius:50%;width:20px;height:20px;margin:0 auto 4px;background:${it.color};`
-        : `background:${it.color};`;
-      p.innerHTML=`<span class="sw" style="${swStyle}"></span>${it.name}<br><span class="dim">${dim}</span>`;
+      let dim, sw;
+      if(it.shape==='text'){
+        dim='ラベル';
+        sw=`<span class="sw" style="width:34px;height:20px;background:${it.color}1f;border:1px dashed ${it.color};color:${it.color};font-size:12px;line-height:18px;text-align:center;">A</span>`;
+      } else {
+        // プレビューの縦横比を実寸 w:d に合わせる（最大46×30の枠に収める）
+        const w=it.w, d=(it.shape==='circle'? it.w : it.d), ratio=w/d;
+        const maxW=46, maxH=30; let pw=maxW, ph=maxW/ratio;
+        if(ph>maxH){ ph=maxH; pw=maxH*ratio; }
+        pw=Math.max(6,Math.round(pw)); ph=Math.max(6,Math.round(ph));
+        dim = it.shape==='circle'?`φ${it.w}`:`${it.w}×${it.d}`;
+        const radius = it.shape==='circle'?'border-radius:50%;':'border-radius:2px;';
+        sw=`<span class="sw" style="width:${pw}px;height:${ph}px;background:${it.color};${radius}"></span>`;
+      }
+      p.innerHTML=`<span class="swbox">${sw}</span>${it.name}<br><span class="dim">${dim}</span>`;
       p.onclick=()=>addFixture(it.key);
       p.addEventListener('dragstart',e=>{ e.dataTransfer.setData('text/fx', it.key); });
       parts.appendChild(p);
